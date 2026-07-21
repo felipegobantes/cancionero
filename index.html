@@ -222,7 +222,7 @@
     <button class="icon-btn" id="eRedo" title="Rehacer (Ctrl+Shift+Z)">↻</button>
     <button class="icon-btn primary" id="eSave" title="Guardar">✓</button>
   </div>
-  <div class="ed-hint" id="eHint">Toca una sílaba para corregirla · arrastra un acorde para moverlo</div>
+  <div class="ed-hint" id="eHint">Toca una sílaba para corregirla · arrastra un acorde para moverlo · desliza para ver el resto del verso</div>
   <div class="ed-scroll"><div class="ed-sheet" id="eSheet"></div></div>
 </div>
 
@@ -953,11 +953,18 @@ function placeChords(lineEl){
   const track=lineEl.querySelector('.etrack');
   const targets=snapTargets(lineEl);
   lineEl._targets=targets;
+  let derecha=0;
   track.querySelectorAll('.echord').forEach(ch=>{
     const i=parseInt(ch.dataset.i);
     const x = targets[i]!=null ? targets[i] : (targets.length? targets[targets.length-1]+ (i-targets.length+1)*chWidth(syls) : i*chWidth(syls));
-    ch.style.left=Math.max(0,x)+'px';
+    const px=Math.max(0,x);
+    ch.style.left=px+'px';
+    derecha=Math.max(derecha, px+ch.offsetWidth);
   });
+  /* Los acordes están posicionados en absoluto, así que no cuentan para el
+     ancho intrínseco de la línea. Se lo damos a mano para que un acorde que
+     cae más a la derecha que la última sílaba siga entrando en el scroll. */
+  track.style.minWidth = derecha? (derecha+24)+'px' : '';
 }
 
 /* Devuelve el array de coordenadas X donde puede caer un acorde. */
@@ -978,15 +985,36 @@ function snapTargets(lineEl){
 function attachChordHandlers(ch, line, lineEl){
   ch.addEventListener('pointerdown', e=>{
     e.preventDefault(); e.stopPropagation();
+    const cont=document.querySelector('.ed-scroll');
     const startX=e.clientX;
+    const startScroll=cont.scrollLeft;
     const origLeft=parseFloat(ch.style.left)||0;
     const origIdx=parseInt(ch.dataset.i);
-    let moved=false, dropIdx=origIdx;
+    let moved=false, dropIdx=origIdx, lastX=e.clientX;
     ch.setPointerCapture(e.pointerId);
     ch.classList.add('drag');
 
-    const onMove=ev=>{
-      const dx=ev.clientX-startX;
+    /* Auto-desplazamiento: si el dedo se acerca a un borde, la hoja se corre
+       sola. Sin esto no podrías llevar un acorde más allá de lo que se ve. */
+    const BORDE=56, VEL=14;
+    let rafId=null;
+    function autoScroll(){
+      const r=cont.getBoundingClientRect();
+      let d=0;
+      if(lastX < r.left+BORDE)       d = -VEL * Math.min(1,(r.left+BORDE-lastX)/BORDE);
+      else if(lastX > r.right-BORDE) d =  VEL * Math.min(1,(lastX-(r.right-BORDE))/BORDE);
+      if(d!==0){
+        const antes=cont.scrollLeft;
+        cont.scrollLeft += d;
+        if(cont.scrollLeft!==antes) recalcular();
+      }
+      rafId=requestAnimationFrame(autoScroll);
+    }
+
+    /* La posición del acorde se mide en coordenadas del contenido, así que al
+       delta del dedo hay que sumarle cuánto se ha desplazado la hoja. */
+    function recalcular(){
+      const dx=(lastX-startX)+(cont.scrollLeft-startScroll);
       if(Math.abs(dx)>5) moved=true;
       const x=origLeft+dx;
       ch.style.left=x+'px';
@@ -996,9 +1024,12 @@ function attachChordHandlers(ch, line, lineEl){
       lineEl.querySelectorAll('.esyl.target').forEach(n=>n.classList.remove('target'));
       const t=lineEl.querySelectorAll('.esyl')[dropIdx];
       if(t) t.classList.add('target');
-    };
+    }
+
+    const onMove=ev=>{ lastX=ev.clientX; recalcular(); };
     const onUp=()=>{
       ch.removeEventListener('pointermove',onMove);
+      if(rafId) cancelAnimationFrame(rafId);
       ch.classList.remove('drag');
       lineEl.querySelectorAll('.esyl.target').forEach(n=>n.classList.remove('target'));
       if(moved && dropIdx!==origIdx){
@@ -1015,6 +1046,7 @@ function attachChordHandlers(ch, line, lineEl){
     ch.addEventListener('pointermove',onMove);
     ch.addEventListener('pointerup',onUp,{once:true});
     ch.addEventListener('pointercancel',onUp,{once:true});
+    rafId=requestAnimationFrame(autoScroll);
   });
 }
 
@@ -1429,10 +1461,22 @@ if('serviceWorker' in navigator){
   padding:9px 16px;font-size:12px;color:var(--ink-dim);background:var(--panel);
   border-bottom:1px solid var(--border);text-align:center;
 }
-.ed-scroll{flex:1;overflow:auto;padding:18px 16px 90px;}
-.ed-sheet{font-family:var(--mono);font-size:17px;line-height:1.2;}
+/* Un solo scroll para toda la hoja.
+   Antes cada línea tenía su propio overflow-x: en iOS esos scrolls anidados
+   dentro de un contenedor fijo se comen el gesto horizontal, y además cada
+   verso se desplazaba por su cuenta, rompiendo la alineación entre líneas.
+   Con min-width:max-content encadenado, la hoja se hace tan ancha como su
+   línea más larga y todo se desplaza junto. */
+.ed-scroll{
+  flex:1;overflow:auto;-webkit-overflow-scrolling:touch;
+  padding:18px 16px 90px;overscroll-behavior-x:contain;
+}
+.ed-sheet{font-family:var(--mono);font-size:17px;line-height:1.2;min-width:max-content;}
 
-.eblock{margin-bottom:20px;padding:10px 8px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.015);}
+.eblock{
+  margin-bottom:20px;padding:10px 8px;border:1px solid var(--border);
+  border-radius:12px;background:rgba(255,255,255,.015);min-width:max-content;
+}
 .ehead{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
 .elabel{
   font-family:var(--sans);color:var(--accent);font-weight:700;font-size:12px;
@@ -1449,12 +1493,9 @@ if('serviceWorker' in navigator){
 .ebtn.del{color:var(--danger);}
 .ebtn:active{transform:scale(.9);}
 
-/* una línea = pista de acordes (posicionada) + fila de sílabas */
-.eline{
-  position:relative;margin-bottom:16px;
-  overflow-x:auto;overflow-y:hidden;scrollbar-width:none;
-}
-.eline::-webkit-scrollbar{display:none;}
+/* una línea = pista de acordes (posicionada) + fila de sílabas.
+   Sin overflow propio: el desplazamiento lo maneja .ed-scroll para todas. */
+.eline{position:relative;margin-bottom:16px;min-width:max-content;}
 .etrack{position:relative;height:2em;}
 .esyls{white-space:nowrap;color:var(--ink);padding-bottom:2px;}
 .esyls.nolyric{opacity:.25;}
