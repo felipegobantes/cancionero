@@ -11,7 +11,7 @@
 
    Al cambiar el HTML, sube el número de VERSION: eso invalida la caché vieja.
 */
-const VERSION = 'cancionero-v2';
+const VERSION = 'cancionero-v3';
 const SHELL = [
   './',
   './index.html',
