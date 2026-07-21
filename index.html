@@ -945,6 +945,15 @@ function chWidth(el){
   return w||8;
 }
 
+/* Ancho de una columna en las líneas de SOLO acordes, al editar.
+   En el CSV la columna es una posición de carácter (así la dibuja el visor),
+   pero aquí cada acorde es una ficha con relleno: a una columna por carácter
+   las fichas se montan unas sobre otras y la de arriba se come el toque.
+   Al editar separamos las columnas lo suficiente para el dedo. El CSV no
+   cambia: el índice de celda sigue siendo el mismo, solo se dibuja más ancho. */
+const COLUMNA_ACORDE=46;
+const SEPARACION_MINIMA=6;
+
 /* Coloca cada acorde en la coordenada X de su sílaba (o de su columna,
    en líneas de solo acordes). Se llama tras el layout y tras cada cambio. */
 function placeChords(lineEl){
@@ -953,13 +962,24 @@ function placeChords(lineEl){
   const track=lineEl.querySelector('.etrack');
   const targets=snapTargets(lineEl);
   lineEl._targets=targets;
-  let derecha=0;
-  track.querySelectorAll('.echord').forEach(ch=>{
+  const paso = line.lyricRow ? chWidth(syls) : COLUMNA_ACORDE;
+
+  // en orden de columna, para poder empujar hacia la derecha sin cruzarlos
+  const fichas=[...track.querySelectorAll('.echord')]
+    .sort((a,b)=>parseInt(a.dataset.i)-parseInt(b.dataset.i));
+
+  let tope=0, derecha=0;
+  fichas.forEach(ch=>{
     const i=parseInt(ch.dataset.i);
-    const x = targets[i]!=null ? targets[i] : (targets.length? targets[targets.length-1]+ (i-targets.length+1)*chWidth(syls) : i*chWidth(syls));
-    const px=Math.max(0,x);
-    ch.style.left=px+'px';
-    derecha=Math.max(derecha, px+ch.offsetWidth);
+    let x = targets[i]!=null
+      ? targets[i]
+      : (targets.length ? targets[targets.length-1]+(i-targets.length+1)*paso : i*paso);
+    x=Math.max(0,x);
+    // si aun así se solaparía con la ficha anterior, se empuja lo justo
+    if(x<tope) x=tope;
+    ch.style.left=x+'px';
+    tope=x+ch.offsetWidth+SEPARACION_MINIMA;
+    derecha=Math.max(derecha, x+ch.offsetWidth);
   });
   /* Los acordes están posicionados en absoluto, así que no cuentan para el
      ancho intrínseco de la línea. Se lo damos a mano para que un acorde que
@@ -973,12 +993,15 @@ function snapTargets(lineEl){
   const syls=lineEl.querySelector('.esyls');
   const base=syls.getBoundingClientRect().left;
   if(line.lyricRow){
+    // sobre letra: el ancla es la sílaba, medida en el layout real
     return [...syls.querySelectorAll('.esyl')].map(s=>s.getBoundingClientRect().left-base);
   }
-  // solo acordes: columnas de caracter, tantas como ancho tenga la línea
-  const cw=chWidth(syls);
-  const n=Math.max(40, Math.ceil(lineEl.clientWidth/cw));
-  return Array.from({length:n},(_,k)=>k*cw);
+  /* Solo acordes: columnas separadas para el dedo. Generamos hasta bastante
+     más allá del último acorde para poder arrastrarlos hacia la derecha. */
+  let maxI=0;
+  (line.chordRow||[]).slice(1).forEach((c,i)=>{ if(c.trim()!=='') maxI=Math.max(maxI,i); });
+  const n=Math.max(24, maxI+12);
+  return Array.from({length:n},(_,k)=>k*COLUMNA_ACORDE);
 }
 
 /* --- interacción del acorde: arrastrar mueve, tocar edita --- */
@@ -1496,9 +1519,15 @@ if('serviceWorker' in navigator){
 /* una línea = pista de acordes (posicionada) + fila de sílabas.
    Sin overflow propio: el desplazamiento lo maneja .ed-scroll para todas. */
 .eline{position:relative;margin-bottom:16px;min-width:max-content;}
-.etrack{position:relative;height:2em;}
+.etrack{position:relative;height:2.4em;}
 .esyls{white-space:nowrap;color:var(--ink);padding-bottom:2px;}
-.esyls.nolyric{opacity:.25;}
+/* Línea de solo acordes: en vez de letra, una regla tenue que muestra dónde
+   están las columnas. El paso debe coincidir con COLUMNA_ACORDE en el script. */
+.esyls.nolyric{
+  height:1.1em;
+  background-image:repeating-linear-gradient(to right,
+    rgba(232,193,74,.20) 0 1px, transparent 1px 46px);
+}
 .esyl{
   display:inline-block;padding:1px 0;
   border-bottom:1px dashed rgba(232,193,74,.22);
@@ -1512,7 +1541,8 @@ if('serviceWorker' in navigator){
 .echord{
   position:absolute;top:0;
   color:var(--chord);font-weight:700;
-  padding:3px 7px;border-radius:8px;
+  padding:5px 9px;border-radius:8px;
+  min-width:34px;text-align:center;      /* área de toque cómoda con el dedo */
   background:var(--panel2);border:1px solid var(--border);
   touch-action:none;user-select:none;-webkit-user-select:none;
   white-space:nowrap;
