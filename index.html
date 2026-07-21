@@ -83,6 +83,12 @@
   .song .tag{font-size:11px;padding:3px 9px;border-radius:999px;background:var(--panel2);color:var(--ink-dim);border:1px solid var(--border);}
   .song .tag .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;}
   .song .go{color:var(--ink-dim);font-size:20px;}
+  .song .more{
+    width:36px;height:36px;border-radius:10px;flex:none;
+    background:var(--panel2);border:1px solid var(--border);
+    color:var(--ink-dim);font-size:18px;line-height:1;
+  }
+  .song .more:active{transform:scale(.9);background:var(--border);}
   .empty{text-align:center;color:var(--ink-dim);padding:60px 20px;line-height:1.6;}
   .empty .big{font-size:40px;margin-bottom:14px;opacity:.5;}
 
@@ -553,10 +559,63 @@ function renderSongs(){
   filtered.forEach(s=>{
     const el=document.createElement('div'); el.className='song';
     const tagsHtml=(s.tags||[]).map(id=>{const t=tagById(id);return t?`<span class="tag"><span class="dot" style="background:${t.color}"></span>${t.name}</span>`:'';}).join('');
-    el.innerHTML=`<div class="meta"><p class="title">${escapeHtml(s.title)}</p><div class="tags">${tagsHtml}</div></div><div class="go">›</div>`;
+    el.innerHTML=`<div class="meta"><p class="title">${escapeHtml(s.title)}</p><div class="tags">${tagsHtml}</div></div>`+
+      `<button class="more" title="Opciones">⋯</button><div class="go">›</div>`;
     el.onclick=()=>openReader(s.id);
+    // el menú no debe abrir la hoja al tocarlo
+    el.querySelector('.more').onclick=e=>{ e.stopPropagation(); openSongMenu(s.id); };
     list.appendChild(el);
   });
+}
+
+/* Menú por canción: renombrar, etiquetar, exportar o eliminar, directo desde
+   la lista. Guarda al instante en IndexedDB, sin pasar por el editor. */
+function openSongMenu(id){
+  const s=songs.find(x=>x.id===id); if(!s) return;
+  const ov=modal();
+  ov.body.innerHTML=`
+    <h2 class="mtitle">${escapeHtml(s.title)}</h2>
+    <label class="lbl">Título</label>
+    <input class="fld" id="smTitle" value="${escapeHtml(s.title)}">
+    <label class="lbl">Etiquetas</label>
+    <div class="tagpick" id="smTags"></div>
+    <button class="ghostbtn wide" id="smExport" style="margin-top:18px">⬆︎ Exportar esta hoja</button>
+    <div class="mactions">
+      <button class="dangerbtn" id="smDelete">Eliminar</button>
+      <div style="flex:1"></div>
+      <button class="ghostbtn" id="smCancel">Cancelar</button>
+      <button class="solidbtn" id="smOk">Guardar</button>
+    </div>`;
+  const picker=ov.body.querySelector('#smTags');
+  const chosen=new Set(s.tags||[]);
+  function drawPicker(){
+    picker.innerHTML='';
+    if(tags.length===0){picker.innerHTML='<span class="hint">Sin etiquetas todavía. Créalas desde 🏷️.</span>';return;}
+    tags.forEach(t=>{
+      const b=document.createElement('button');
+      b.className='pchip'+(chosen.has(t.id)?' on':'');
+      b.innerHTML=`<span class="dot" style="background:${t.color}"></span>${escapeHtml(t.name)}`;
+      if(chosen.has(t.id)){b.style.background=t.color;b.style.color='#1a1205';}
+      b.onclick=()=>{chosen.has(t.id)?chosen.delete(t.id):chosen.add(t.id);drawPicker();};
+      picker.appendChild(b);
+    });
+  }
+  drawPicker();
+  ov.body.querySelector('#smExport').onclick=()=>exportSong(s);
+  ov.body.querySelector('#smCancel').onclick=ov.close;
+  ov.body.querySelector('#smDelete').onclick=async()=>{
+    if(!confirm(`¿Eliminar "${s.title}" definitivamente? No se puede deshacer.`)) return;
+    await del('songs', s.id);
+    ov.close();
+    await refresh();
+  };
+  ov.body.querySelector('#smOk').onclick=async()=>{
+    const t=ov.body.querySelector('#smTitle').value.trim();
+    if(!t){ alert('La hoja necesita un título.'); return; }
+    await put('songs', {...s, title:t, tags:[...chosen], updated:Date.now()});
+    ov.close();
+    await refresh();
+  };
 }
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
