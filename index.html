@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cancionero">
+<meta name="theme-color" content="#12100e">
+<link rel="manifest" href="manifest.json">
+<title>Cancionero</title>
+<!-- iOS ignora los iconos del manifest: usa este. Debe ser PNG real, no SVG. -->
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root{
+    --bg:#12100e;        /* casi negro cálido, para penumbra de escenario */
+    --panel:#1c1916;
+    --panel2:#241f1a;
+    --ink:#f3ece0;       /* texto principal, blanco hueso */
+    --ink-dim:#a89d8c;   /* texto secundario */
+    --border:#332c24;
+    --chord:#e8c14a;     /* dorado ámbar para acordes */
+    --accent:#c8683a;    /* terracota tostado para acciones */
+    --accent-ink:#1a1512;
+    --danger:#b8483a;
+    --radius:14px;
+    --mono:'SFMono-Regular',ui-monospace,'Menlo','Consolas','Roboto Mono',monospace;
+    --sans:'Avenir Next','Segoe UI',system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:var(--bg);color:var(--ink);
+    font-family:var(--sans);
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    overflow-x:hidden;
+  }
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
+  input,textarea,select{font-family:inherit;}
+
+  /* ---------- App shell ---------- */
+  #app{max-width:760px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;}
+  header.bar{
+    display:flex;align-items:center;gap:12px;padding:16px 18px 12px;
+    position:sticky;top:0;background:linear-gradient(var(--bg),var(--bg) 70%,transparent);z-index:10;
+  }
+  header.bar h1{
+    margin:0;font-size:19px;font-weight:600;letter-spacing:.5px;
+    display:flex;align-items:center;gap:9px;
+  }
+  header.bar h1 .glyph{color:var(--chord);font-size:22px;}
+  .spacer{flex:1;}
+  .icon-btn{
+    width:40px;height:40px;border-radius:11px;display:grid;place-items:center;
+    background:var(--panel);border:1px solid var(--border);font-size:19px;color:var(--ink);
+    transition:transform .08s;
+  }
+  .icon-btn:active{transform:scale(.92);}
+  .icon-btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:700;}
+
+  /* ---------- Filter chips ---------- */
+  .filterwrap{padding:2px 18px 10px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;}
+  .filterwrap::-webkit-scrollbar{display:none;}
+  .chip{
+    white-space:nowrap;padding:7px 14px;border-radius:999px;font-size:13px;
+    background:var(--panel);border:1px solid var(--border);color:var(--ink-dim);
+    transition:all .12s;
+  }
+  .chip.on{background:var(--chord);color:#241a05;border-color:transparent;font-weight:600;}
+  .chip.manage{color:var(--accent);border-style:dashed;}
+
+  /* ---------- Song list ---------- */
+  main{flex:1;padding:4px 18px 40px;}
+  .song{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:15px 16px;margin-bottom:11px;display:flex;align-items:center;gap:12px;
+    transition:transform .08s;
+  }
+  .song:active{transform:scale(.985);}
+  .song .meta{flex:1;min-width:0;}
+  .song .title{font-size:16px;font-weight:600;margin:0 0 5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .song .tags{display:flex;gap:6px;flex-wrap:wrap;}
+  .song .tag{font-size:11px;padding:3px 9px;border-radius:999px;background:var(--panel2);color:var(--ink-dim);border:1px solid var(--border);}
+  .song .tag .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+  .song .go{color:var(--ink-dim);font-size:20px;}
+  .empty{text-align:center;color:var(--ink-dim);padding:60px 20px;line-height:1.6;}
+  .empty .big{font-size:40px;margin-bottom:14px;opacity:.5;}
+
+  /* ---------- Full-screen chord sheet ---------- */
+  #reader{
+    position:fixed;inset:0;background:var(--bg);z-index:100;display:none;flex-direction:column;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  #reader.show{display:flex;}
+  .reader-top{
+    display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);
+  }
+  .reader-top .rtitle{flex:1;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .reader-scroll{flex:1;overflow:auto;padding:22px 20px 80px;}
+  .sheet{font-family:var(--mono);font-size:16px;line-height:1.15;}
+  .sheet .section-label{
+    color:var(--accent);font-family:var(--sans);font-weight:700;font-size:13px;
+    letter-spacing:1.5px;text-transform:uppercase;margin:22px 0 8px;
+  }
+  .sheet .section-label:first-child{margin-top:0;}
+  /* Each rendered line pair: chord row above, lyric row below, char-aligned */
+  .line{margin-bottom:11px;white-space:pre;overflow-x:auto;scrollbar-width:none;}
+  .line::-webkit-scrollbar{display:none;}
+  .line .chordrow{color:var(--chord);font-weight:700;min-height:1.15em;}
+  .line .lyricrow{color:var(--ink);}
+  .line.chords-only .chordrow{color:var(--chord);}
+  .line.chords-only{opacity:.95;}
+  /* size controls */
+  .fontbtn{font-size:15px;}
+
+  /* ---------- Barra de controles del modo impresión ---------- */
+  .print-controls{
+    display:none;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--border);
+    background:var(--panel);flex-wrap:wrap;
+  }
+  #reader.print-mode .print-controls{display:flex;}
+  .pc-group{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-dim);}
+  .pc-group label{white-space:nowrap;}
+  .pc-group select{
+    background:var(--panel2);color:var(--ink);border:1px solid var(--border);border-radius:8px;
+    padding:6px 10px;font-size:13px;
+  }
+  .pc-group input[type=range]{width:130px;accent-color:var(--accent);}
+  .pc-hint{font-size:12px;color:var(--ink-dim);margin-left:auto;}
+
+  /* ---------- Área de páginas (modo impresión) ---------- */
+  .pages-scroll{flex:1;overflow:auto;padding:20px;background:#2a2622;display:none;}
+  #reader.print-mode .pages-scroll{display:block;}
+  #reader.print-mode .reader-scroll{display:none;}
+  .page{
+    background:#fff;color:#111;margin:0 auto 20px;box-shadow:0 3px 14px rgba(0,0,0,.4);
+    width:816px;height:1056px;box-sizing:border-box;overflow:hidden;position:relative;
+  }
+  .page-inner{height:100%;box-sizing:border-box;padding:var(--page-pad,44px);display:flex;flex-direction:column;}
+  .page-title{font-family:var(--sans);font-size:20px;font-weight:700;margin:0 0 4px;color:#111;flex:none;}
+  .page-tags{font-size:12px;color:#666;margin-bottom:14px;flex:none;}
+  .page-columns{flex:1 1 auto;display:flex;gap:var(--col-gap,26px);align-items:stretch;overflow:hidden;}
+  .page-column{flex:1 1 0;min-width:0;overflow:hidden;}
+  .page .section-label{color:#b0341d;font-family:var(--sans);font-weight:700;font-size:13px;
+    letter-spacing:1px;text-transform:uppercase;margin:11px 0 5px;}
+  .page .section-label:first-child{margin-top:0;}
+  .page .line{margin-bottom:7px;white-space:pre;overflow:visible;}
+  .page .line .chordrow{color:#b0341d;font-weight:700;min-height:1.15em;}
+  .page .line .lyricrow{color:#111;}
+  .print-block{margin-bottom:2px;}
+  .page-sheet{font-family:var(--mono);line-height:1.15;}
+
+  @media print{
+    body *{visibility:hidden;}
+    #reader.print-mode, #reader.print-mode *{visibility:visible;}
+    #reader.print-mode{position:absolute;inset:0;background:#fff;}
+    .reader-top, .print-controls{display:none !important;}
+    .pages-scroll{padding:0;background:#fff;overflow:visible;}
+    .page{box-shadow:none;margin:0;page-break-after:always;break-after:page;}
+    .page:last-child{page-break-after:auto;}
+    @page{size:letter;margin:0;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="bar">
+    <h1><span class="glyph">♪</span> Cancionero</h1>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="btnBackup" title="Respaldo">⋯</button>
+    <button class="icon-btn" id="btnTags" title="Etiquetas">🏷️</button>
+    <button class="icon-btn primary" id="btnAdd" title="Importar hoja">＋</button>
+    <input type="file" id="addFile" accept=".csv,text/csv" multiple style="display:none">
+  </header>
+
+  <div class="filterwrap" id="filterwrap"></div>
+
+  <main>
+    <div id="songlist"></div>
+  </main>
+</div>
+
+<!-- Reader full screen -->
+<div id="reader">
+  <div class="reader-top">
+    <button class="icon-btn" id="rClose">‹</button>
+    <div class="rtitle" id="rTitle"></div>
+    <button class="icon-btn fontbtn" id="rMinus">A−</button>
+    <button class="icon-btn fontbtn" id="rPlus">A＋</button>
+    <button class="icon-btn" id="rPrintMode" title="Modo impresión">🖨️</button>
+    <button class="icon-btn" id="rExport">⬆︎</button>
+    <button class="icon-btn" id="rEdit">✎</button>
+  </div>
+  <div class="print-controls">
+    <div class="pc-group">
+      <label for="pcCols">Columnas</label>
+      <select id="pcCols">
+        <option value="1">1</option>
+        <option value="2" selected>2</option>
+        <option value="3">3</option>
+      </select>
+    </div>
+    <div class="pc-group">
+      <label for="pcSize">Tamaño</label>
+      <input type="range" id="pcSize" min="10" max="18" step="0.5" value="11">
+      <span id="pcSizeVal" style="font-size:11px;color:var(--ink-dim);min-width:26px;">11</span>
+    </div>
+    <button class="icon-btn" id="pcPrint" title="Imprimir / Guardar PDF">Imprimir</button>
+    <span class="pc-hint" id="pcPages"></span>
+  </div>
+  <div class="reader-scroll"><div class="sheet" id="rSheet"></div></div>
+  <div class="pages-scroll"><div id="rPages"></div></div>
+</div>
+
+<!-- Editor visual full screen -->
+<div id="editor">
+  <div class="reader-top">
+    <button class="icon-btn" id="eCancel">‹</button>
+    <div class="rtitle" id="eTitle"></div>
+    <button class="icon-btn" id="eDetails" title="Título y etiquetas">ⓘ</button>
+    <button class="icon-btn" id="eUndo" title="Deshacer (Ctrl+Z)">↺</button>
+    <button class="icon-btn" id="eRedo" title="Rehacer (Ctrl+Shift+Z)">↻</button>
+    <button class="icon-btn primary" id="eSave" title="Guardar">✓</button>
+  </div>
+  <div class="ed-hint" id="eHint">Toca una sílaba para corregirla · arrastra un acorde para moverlo</div>
+  <div class="ed-scroll"><div class="ed-sheet" id="eSheet"></div></div>
+</div>
+
+<script>
+/* =========================================================
+   1. PARSER  (validado con casos de prueba)
+   ========================================================= */
+
+/* Parser CSV completo (RFC 4180): comillas, comas dentro de comillas,
+   comillas duplicadas, saltos de línea dentro de celdas entre comillas. */
+function parseCSVFull(text){
+  const rows=[]; let row=[]; let cell=''; let i=0; let inQuotes=false;
+  text=text.replace(/\r\n?/g,'\n');
+  while(i<text.length){
+    const ch=text[i];
+    if(inQuotes){
+      if(ch==='"'){ if(text[i+1]==='"'){cell+='"';i+=2;continue;} inQuotes=false;i++;continue; }
+      cell+=ch; i++; continue;
+    } else {
+      if(ch==='"'){ inQuotes=true; i++; continue; }
+      if(ch===','){ row.push(cell); cell=''; i++; continue; }
+      if(ch==='\n'){ row.push(cell); rows.push(row); row=[]; cell=''; i++; continue; }
+      cell+=ch; i++; continue;
+    }
+  }
+  row.push(cell); rows.push(row);
+  return rows;
+}
+/* Serializa una celda: comillas solo si contiene coma, comilla o salto de línea. */
+function csvCell(v){ v=(v==null)?'':String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function csvRow(cells){ return cells.map(csvCell).join(','); }
+
+/* Convierte texto CSV -> estructura de líneas (para el render de la hoja).
+   Formato nuevo: cada fila lleva su tipo en la columna 0 ({t}/{s}/{a}/{l}).
+   La fila {t} son metadatos y se ignora al renderizar. */
+function parseCSV(text){
+  const rows=parseCSVFull(text);
+  return parseSheetRows(rows);
+}
+/* Detecta si el CSV está en el formato nuevo (con marcadores) o el viejo. */
+function hasMarkers(rows){
+  // busca al menos una fila cuya columna 0 sea un marcador reconocido
+  for(const cells of rows){
+    const m=(cells[0]||'').trim().toLowerCase();
+    if(m==='{t}'||m==='{s}'||m==='{a}'||m==='{l}') return true;
+  }
+  return false;
+}
+/* Interpreta filas con marcador de tipo. Descarta la columna 0 (marcador);
+   el contenido real empieza en la columna 1. */
+function parseSheetRows(rows){
+  const out=[];
+  for(const cells of rows){
+    const marker=(cells[0]||'').trim().toLowerCase();
+    const content=cells.slice(1); // descontar la columna del marcador
+    if(marker==='{t}'){ continue; } // metadatos: no se renderiza
+    if(marker==='{s}'){
+      const raw=content.join('').trim();
+      const label=raw.replace(/^\[/,'').replace(/\]$/,'').trim();
+      out.push({type:'section', label});
+    } else if(marker==='{a}'){
+      out.push({type:'chords', pos: buildChords(content)});
+    } else if(marker==='{l}'){
+      out.push({type:'lyric', syl: buildSyllables(content)});
+    } else if(marker===''){
+      out.push({type:'blank'});
+    }
+    // marcador no reconocido: se ignora la fila
+  }
+  return out;
+}
+/* Extrae metadatos de la fila {t}: título (col 1) y tags entre paréntesis (col 2+). */
+function parseMeta(text){
+  const rows=parseCSVFull(text);
+  let first=null;
+  for(const cells of rows){ if((cells[0]||'').trim().toLowerCase()==='{t}'){ first=cells; break; } }
+  if(!first) first=rows[0]||[];
+  const startIdx = (first[0]||'').trim().toLowerCase()==='{t}' ? 1 : 0;
+  const title=(first[startIdx]||'').trim();
+  const tagNames=[];
+  for(let i=startIdx+1;i<first.length;i++){
+    const m=first[i].trim().match(/^\((.*)\)$/);
+    if(m && m[1].trim()!=='') tagNames.push(m[1].trim());
+    else if(first[i].trim()!=='') tagNames.push(first[i].trim());
+  }
+  return {title, tagNames};
+}
+function buildSyllables(cells){
+  const syl=[];
+  for(let i=0;i<cells.length;i++){
+    let t=cells[i]; const isLast=i===cells.length-1; let glue=false;
+    if(t.endsWith('-')){ t=t.slice(0,-1); glue=!isLast; }
+    syl.push({text:t,glue});
+  }
+  return syl;
+}
+function buildChords(cells){
+  const m={};
+  cells.forEach((c,i)=>{ if(c.trim()!=='') m[i]=c.trim(); });
+  return m;
+}
+
+/* Convierte una estructura parseada en pares de filas alineadas (chord row / lyric row)
+   usando posiciones de CARACTER para que el acorde caiga sobre la sílaba correcta. */
+function renderSheet(parsed){
+  const frag=document.createElement('div');
+  let i=0;
+  while(i<parsed.length){
+    const item=parsed[i];
+    if(item.type==='blank'){ i++; continue; }
+    if(item.type==='section'){
+      const s=document.createElement('div'); s.className='section-label'; s.textContent=item.label?'['+item.label+']':''; frag.appendChild(s); i++; continue;
+    }
+    if(item.type==='chords'){
+      // ¿la siguiente línea es letra? entonces es un par acorde+letra
+      const next=parsed[i+1];
+      if(next && next.type==='lyric'){
+        frag.appendChild(renderPair(item.pos, next.syl));
+        i+=2; continue;
+      } else {
+        // línea de solo acordes (intro/puente) — sin letra debajo
+        frag.appendChild(renderChordsOnly(item.pos));
+        i++; continue;
+      }
+    }
+    if(item.type==='lyric'){
+      // letra sin acordes encima
+      frag.appendChild(renderPair({}, item.syl));
+      i++; continue;
+    }
+    i++;
+  }
+  return frag;
+}
+
+/* Construye el string de letra y calcula el índice de caracter donde inicia
+   cada sílaba (posición). Luego coloca cada acorde sobre esa columna. */
+function renderPair(chordPos, syllables){
+  const wrap=document.createElement('div'); wrap.className='line';
+  // construir texto de letra + posiciones de inicio de cada sílaba
+  let lyric=''; const startCol=[];
+  syllables.forEach((s,idx)=>{
+    startCol[idx]=lyric.length;
+    lyric+=s.text;
+    if(!s.glue && idx!==syllables.length-1) lyric+=' ';
+  });
+  // fila de acordes: colocar cada acorde en la columna de su sílaba
+  const overflow=[];
+  let chordLine='';
+  const positions=Object.keys(chordPos).map(Number).sort((a,b)=>a-b);
+  positions.forEach(p=>{
+    const chord=chordPos[p];
+    if(p<syllables.length){
+      const col=startCol[p];
+      if(chordLine.length<col) chordLine+=' '.repeat(col-chordLine.length);
+      // evitar solaparse: si ya hay algo, empujar con un espacio
+      if(chordLine.length>col && chordLine.length>0){ chordLine+=' '; }
+      chordLine+=chord;
+    } else {
+      overflow.push(chord); // supera el nº de sílabas -> al final
+    }
+  });
+  if(overflow.length){
+    const pad = lyric.length+2;
+    if(chordLine.length<pad) chordLine+=' '.repeat(pad-chordLine.length);
+    chordLine+=overflow.join(' ');
+  }
+  const cr=document.createElement('div'); cr.className='chordrow'; cr.textContent=chordLine||' ';
+  const lr=document.createElement('div'); lr.className='lyricrow'; lr.textContent=lyric||' ';
+  wrap.appendChild(cr); wrap.appendChild(lr);
+  return wrap;
+}
+
+function renderChordsOnly(chordPos){
+  const wrap=document.createElement('div'); wrap.className='line chords-only';
+  let chordLine='';
+  const positions=Object.keys(chordPos).map(Number).sort((a,b)=>a-b);
+  positions.forEach(p=>{
+    const col=p; // en solo-acordes, la posición de celda define la columna directamente
+    if(chordLine.length<col) chordLine+=' '.repeat(col-chordLine.length);
+    if(chordLine.length>col && chordLine.length>0) chordLine+=' ';
+    chordLine+=chordPos[p];
+  });
+  const cr=document.createElement('div'); cr.className='chordrow'; cr.textContent=chordLine||' ';
+  wrap.appendChild(cr);
+  return wrap;
+}
+
+/* =========================================================
+   2. ALMACENAMIENTO  (IndexedDB)
+   ========================================================= */
+const DB_NAME='cancioneroDB', DB_VER=1;
+let db;
+function openDB(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(DB_NAME,DB_VER);
+    r.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains('songs')) d.createObjectStore('songs',{keyPath:'id'});
+      if(!d.objectStoreNames.contains('tags')) d.createObjectStore('tags',{keyPath:'id'});
+    };
+    r.onsuccess=e=>{db=e.target.result;res();};
+    r.onerror=e=>rej(e.target.error);
+  });
+}
+function tx(store,mode='readonly'){ return db.transaction(store,mode).objectStore(store); }
+function getAll(store){ return new Promise((res,rej)=>{const r=tx(store).getAll();r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);}); }
+function put(store,val){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').put(val);r.onsuccess=()=>res();r.onerror=()=>rej(r.error);}); }
+function del(store,id){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').delete(id);r.onsuccess=()=>res();r.onerror=()=>rej(r.error);}); }
+function clearStore(store){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').clear();r.onsuccess=()=>res();r.onerror=()=>rej(r.error);}); }
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+
+/* =========================================================
+   2b. EXPORTAR / IMPORTAR  (CSV autocontenido)
+   ========================================================= */
+/* Genera el texto CSV de una hoja en formato con marcadores.
+   La fila {t} se regenera con el título y tags actuales (pueden haber cambiado
+   en la lectora); las demás filas del cuerpo se conservan tal cual. */
+function songToCSV(song){
+  const tagNames=(song.tags||[]).map(id=>{const t=tagById(id);return t?t.name:null;}).filter(Boolean);
+  const metaRow=csvRow(['{t}', song.title||'Sin título', ...tagNames.map(n=>'('+n+')')]);
+  // quitar cualquier fila {t} que venga en el cuerpo guardado, para no duplicar
+  const bodyRows=(song.csv||'').replace(/\r\n?/g,'\n').split('\n')
+    .filter(line=>{ const first=parseCSVFull(line)[0]||[]; return (first[0]||'').trim().toLowerCase()!=='{t}'; });
+  return [metaRow, ...bodyRows].join('\n');
+}
+function sanitizeName(s){ return (s||'hoja').replace(/[\\/:*?"<>|]+/g,'_').trim()||'hoja'; }
+function downloadText(filename, text){
+  const blob=new Blob([text],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+/* Exporta una hoja individual (.csv). */
+function exportSong(song){ downloadText(sanitizeName(song.title)+'.csv', songToCSV(song)); }
+/* Respaldo total: todas las hojas en un archivo, separadas por una línea marca. */
+const BACKUP_SEP='===CANCIONERO===';
+function exportAll(){
+  if(songs.length===0){alert('No hay hojas para exportar.');return;}
+  const parts=songs.map(songToCSV);
+  const text='#CANCIONERO_BACKUP\n'+parts.join('\n'+BACKUP_SEP+'\n');
+  const d=new Date().toISOString().slice(0,10);
+  downloadText('cancionero-respaldo-'+d+'.csv', text);
+}
+/* Asegura que existan tags por nombre; crea las que falten. Devuelve array de ids. */
+async function ensureTags(tagNames){
+  const ids=[];
+  for(const name of tagNames){
+    let t=tags.find(x=>x.name.toLowerCase()===name.toLowerCase());
+    if(!t){ t={id:uid(),name,color:PALETTE[tags.length%PALETTE.length]}; await put('tags',t); tags.push(t); }
+    ids.push(t.id);
+  }
+  return ids;
+}
+/* Importa un texto que puede ser: una hoja CSV, o un respaldo total con varias.
+   Solo acepta el formato nuevo con marcadores {t}/{s}/{a}/{l}. Devuelve
+   {count, oldFormat} para poder avisar si venía en formato viejo. */
+async function importCSV(text){
+  text=text.replace(/\r\n?/g,'\n');
+  let blocks;
+  if(text.startsWith('#CANCIONERO_BACKUP')){
+    blocks=text.replace(/^#CANCIONERO_BACKUP\n/,'').split('\n'+BACKUP_SEP+'\n');
+  } else {
+    blocks=[text];
+  }
+  let count=0, oldFormat=0;
+  for(const block of blocks){
+    if(block.trim()==='') continue;
+    const rows=parseCSVFull(block);
+    if(!hasMarkers(rows)){ oldFormat++; continue; } // formato viejo: no se importa
+    const meta=parseMeta(block);
+    const title=meta.title || 'Sin título';
+    // guardar el CSV completo tal cual (con marcadores); el render ignora {t}
+    const body=rows.map(r=>csvRow(r)).join('\n');
+    const tagIds=await ensureTags(meta.tagNames);
+    await put('songs',{id:uid(), title, csv:body, tags:tagIds, updated:Date.now()});
+    count++;
+  }
+  return {count, oldFormat};
+}
+
+/* =========================================================
+   3. ESTADO Y RENDER DE UI
+   ========================================================= */
+let songs=[], tags=[], activeFilters=new Set(), fontSize=16;
+
+async function loadState(){
+  songs=await getAll('songs'); tags=await getAll('tags');
+  songs.sort((a,b)=>a.title.localeCompare(b.title,'es'));
+}
+function tagById(id){ return tags.find(t=>t.id===id); }
+
+function renderFilters(){
+  const wrap=document.getElementById('filterwrap'); wrap.innerHTML='';
+  const all=document.createElement('button');
+  all.className='chip'+(activeFilters.size===0?' on':''); all.textContent='Todas';
+  all.onclick=()=>{activeFilters.clear();renderFilters();renderSongs();};
+  wrap.appendChild(all);
+  tags.forEach(t=>{
+    const c=document.createElement('button');
+    c.className='chip'+(activeFilters.has(t.id)?' on':'');
+    c.textContent=t.name;
+    if(activeFilters.has(t.id)) c.style.background=t.color, c.style.color='#1a1205';
+    c.onclick=()=>{ activeFilters.has(t.id)?activeFilters.delete(t.id):activeFilters.add(t.id); renderFilters(); renderSongs(); };
+    wrap.appendChild(c);
+  });
+  const mng=document.createElement('button');
+  mng.className='chip manage'; mng.textContent='＋ Etiquetas';
+  mng.onclick=openTagManager;
+  wrap.appendChild(mng);
+}
+
+function renderSongs(){
+  const list=document.getElementById('songlist'); list.innerHTML='';
+  let filtered=songs;
+  if(activeFilters.size>0){
+    filtered=songs.filter(s=>[...activeFilters].every(f=>(s.tags||[]).includes(f)));
+  }
+  if(filtered.length===0){
+    list.innerHTML=`<div class="empty"><div class="big">♪</div>${songs.length===0?'Aún no hay hojas.<br>Toca ＋ para importar la primera desde el Escritor.':'Ninguna hoja coincide con el filtro.'}</div>`;
+    return;
+  }
+  filtered.forEach(s=>{
+    const el=document.createElement('div'); el.className='song';
+    const tagsHtml=(s.tags||[]).map(id=>{const t=tagById(id);return t?`<span class="tag"><span class="dot" style="background:${t.color}"></span>${t.name}</span>`:'';}).join('');
+    el.innerHTML=`<div class="meta"><p class="title">${escapeHtml(s.title)}</p><div class="tags">${tagsHtml}</div></div><div class="go">›</div>`;
+    el.onclick=()=>openReader(s.id);
+    list.appendChild(el);
+  });
+}
+function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+/* =========================================================
+   4. LECTOR PANTALLA COMPLETA
+   ========================================================= */
+let currentSongId=null;
+let printMode=false;
+let printCols=2, printSize=11;
+function openReader(id){
+  const s=songs.find(x=>x.id===id); if(!s)return;
+  currentSongId=id;
+  document.getElementById('rTitle').textContent=s.title;
+  const sheet=document.getElementById('rSheet');
+  sheet.innerHTML=''; sheet.style.fontSize=fontSize+'px';
+  sheet.appendChild(renderSheet(parseSheetRows(parseCSVFull(s.csv))));
+  const reader=document.getElementById('reader');
+  reader.classList.add('show');
+  if(printMode) renderPrintPages();
+}
+/* Agrupa la estructura parseada en bloques que no se parten:
+   cada sección abre un bloque nuevo; las líneas se acumulan en el bloque actual. */
+function groupIntoBlocks(parsed){
+  const blocks=[]; let cur=null;
+  let i=0;
+  while(i<parsed.length){
+    const item=parsed[i];
+    if(item.type==='blank'){ i++; continue; }
+    if(item.type==='section'){ cur={label:item.label, lines:[]}; blocks.push(cur); i++; continue; }
+    if(!cur){ cur={label:null, lines:[]}; blocks.push(cur); }
+    // emparejar acordes+letra igual que renderSheet
+    if(item.type==='chords'){
+      const next=parsed[i+1];
+      if(next && next.type==='lyric'){ cur.lines.push(renderPair(item.pos,next.syl)); i+=2; continue; }
+      else { cur.lines.push(renderChordsOnly(item.pos)); i++; continue; }
+    }
+    if(item.type==='lyric'){ cur.lines.push(renderPair({},item.syl)); i++; continue; }
+    i++;
+  }
+  return blocks;
+}
+/* Renderiza páginas carta con columnas explícitas: mido cada bloque al ancho real
+   de columna y lo coloco; si no cabe en la columna, paso a la siguiente; si no hay
+   más columnas, creo una página nueva. Nada se pisa porque cada columna es un div. */
+function renderPrintPages(){
+  const s=songs.find(x=>x.id===currentSongId); if(!s) return;
+  const parsed=parseSheetRows(parseCSVFull(s.csv));
+  const blocks=groupIntoBlocks(parsed);
+  const host=document.getElementById('rPages');
+  host.innerHTML='';
+
+  // márgenes: más apretados cuando hay más columnas, para ganar espacio
+  const pad = printCols>=3 ? 28 : printCols===2 ? 38 : 46;
+  const colGap = printCols>=3 ? 18 : 26;
+
+  function buildBlockEl(b){
+    const bl=document.createElement('div'); bl.className='print-block';
+    if(b.label!==null){ const sl=document.createElement('div'); sl.className='section-label'; sl.textContent=b.label?'['+b.label+']':''; bl.appendChild(sl); }
+    b.lines.forEach(ln=>bl.appendChild(ln.cloneNode(true)));
+    return bl;
+  }
+
+  let pageCount=0;
+  function makePage(withHead){
+    pageCount++;
+    const page=document.createElement('div'); page.className='page';
+    const inner=document.createElement('div'); inner.className='page-inner'; inner.style.setProperty('--page-pad',pad+'px');
+    if(withHead){
+      const tt=document.createElement('div'); tt.className='page-title'; tt.textContent=s.title||''; inner.appendChild(tt);
+      const tagNames=(s.tags||[]).map(id=>{const t=tagById(id);return t?t.name:null;}).filter(Boolean);
+      if(tagNames.length){ const tg=document.createElement('div'); tg.className='page-tags'; tg.textContent=tagNames.join(' · '); inner.appendChild(tg); }
+    }
+    const colsWrap=document.createElement('div'); colsWrap.className='page-columns page-sheet';
+    colsWrap.style.setProperty('--col-gap',colGap+'px');
+    colsWrap.style.fontSize=printSize+'px';
+    // crear SIEMPRE las N columnas (aunque queden vacías), para que el ancho
+    // de cada una sea siempre 1/N y el selector de columnas se refleje visualmente
+    const colEls=[];
+    for(let k=0;k<printCols;k++){
+      const col=document.createElement('div'); col.className='page-column';
+      colsWrap.appendChild(col); colEls.push(col);
+    }
+    inner.appendChild(colsWrap); page.appendChild(inner); host.appendChild(page);
+    return {page, inner, colsWrap, colEls, withHead};
+  }
+
+  let curPage=makePage(true);
+  let colIndex=0;
+  let curCol=curPage.colEls[0];
+
+  function newColumn(){
+    colIndex++;
+    if(colIndex>=printCols){
+      curPage=makePage(false); colIndex=0;
+    }
+    curCol=curPage.colEls[colIndex];
+  }
+  // Desborde real: el contenido excede el alto visible de la propia columna.
+  function overflows(){ return curCol.scrollHeight > curCol.clientHeight + 1; }
+
+  // Reparto: intento colocar cada sección entera; si no cabe, columna nueva;
+  // si la sección es más alta que una columna vacía, se parte LÍNEA por línea
+  // (nada se recorta ni se pierde).
+  blocks.forEach(b=>{
+    const el=buildBlockEl(b);
+    curCol.appendChild(el);
+    if(!overflows()) return; // cabe entera
+    if(curCol.children.length>1){
+      curCol.removeChild(el);
+      newColumn();
+      curCol.appendChild(el);
+      if(!overflows()) return; // cabe entera en columna nueva
+    }
+    // La sección sola no cabe en una columna: repartir sus elementos uno a uno.
+    const parts=[...el.childNodes];
+    curCol.removeChild(el);
+    parts.forEach(node=>{
+      curCol.appendChild(node);
+      if(overflows() && curCol.children.length>1){
+        curCol.removeChild(node);
+        // no dejar el título de sección huérfano al fondo de la columna
+        const carry=[node];
+        const last=curCol.lastElementChild;
+        if(last && last.classList && last.classList.contains('section-label')){
+          curCol.removeChild(last); carry.unshift(last);
+        }
+        newColumn();
+        carry.forEach(n=>curCol.appendChild(n));
+      }
+    });
+  });
+
+  // Ajuste anti-desborde: mido el ancho real del contenido de cada línea usando
+  // un span inline interno; si excede la columna, escalo solo ese span en X.
+  // La línea exterior sigue siendo block, así que los versos NO se pegan.
+  host.querySelectorAll('.page-column').forEach(col=>{
+    const cw=col.clientWidth;
+    if(cw<=0) return;
+    col.querySelectorAll('.chordrow,.lyricrow').forEach(row=>{
+      // envolver el texto en un span inline-block para medir su ancho natural
+      const span=document.createElement('span');
+      span.style.display='inline-block';
+      span.style.whiteSpace='pre';
+      span.textContent=row.textContent;
+      row.textContent='';
+      row.appendChild(span);
+      const natural=span.getBoundingClientRect().width;
+      if(natural>cw){
+        const scale=cw/natural;
+        span.style.transformOrigin='left center';
+        span.style.transform='scaleX('+scale+')';
+      }
+    });
+  });
+
+  updatePageCount();
+}
+function updatePageCount(){
+  const n=document.getElementById('rPages').querySelectorAll('.page').length;
+  const el=document.getElementById('pcPages');
+  if(el) el.textContent = n===1? '1 página' : n+' páginas';
+}
+function setPrintMode(on){
+  printMode=on;
+  const reader=document.getElementById('reader');
+  reader.classList.toggle('print-mode', on);
+  document.getElementById('rPrintMode').classList.toggle('primary', on);
+  if(on) renderPrintPages();
+}
+document.getElementById('rClose').onclick=()=>{ document.getElementById('reader').classList.remove('show'); if(printMode) setPrintMode(false); };
+document.getElementById('rPlus').onclick=()=>{fontSize=Math.min(30,fontSize+1);document.getElementById('rSheet').style.fontSize=fontSize+'px';};
+document.getElementById('rMinus').onclick=()=>{fontSize=Math.max(10,fontSize-1);document.getElementById('rSheet').style.fontSize=fontSize+'px';};
+document.getElementById('rEdit').onclick=()=>{ if(currentSongId) openVisualEditor(currentSongId); };
+document.getElementById('rExport').onclick=()=>{ const s=songs.find(x=>x.id===currentSongId); if(s) exportSong(s); };
+document.getElementById('rPrintMode').onclick=()=>setPrintMode(!printMode);
+document.getElementById('pcCols').onchange=(e)=>{ printCols=parseInt(e.target.value); renderPrintPages(); };
+document.getElementById('pcSize').oninput=(e)=>{ printSize=parseFloat(e.target.value); const v=document.getElementById('pcSizeVal'); if(v)v.textContent=printSize; renderPrintPages(); };
+document.getElementById('pcPrint').onclick=()=>window.print();
+
+/* =========================================================
+   5. EDITOR VISUAL  (retoque directo sobre la hoja)
+   -----------------------------------------------------------
+   No se escribe contenido nuevo aquí: eso vive en el Escritor.
+   Aquí solo se CORRIGE lo que ya existe:
+     · tocar una sílaba  -> corregir su texto / su guion de unión
+     · arrastrar acorde  -> moverlo a otra sílaba (otra celda de la fila {a})
+     · tocar un acorde   -> corregirlo o quitarlo
+     · secciones         -> renombrar, reordenar, eliminar
+   El modelo de trabajo son las FILAS CRUDAS del CSV, agrupadas en bloques.
+   Guardar = reserializar esas filas. La alineación nunca se recalcula a mano:
+   la columna de la celda ES la posición.
+   ========================================================= */
+let edSongId=null;     // hoja en edición
+let edBlocks=null;     // [{labelRow|null, rows:[cells...]}]
+let edTitle='';        // título en edición
+let edTags=null;       // Set de ids de etiqueta
+let edHistory=[];      // pila de deshacer (snapshots serializados)
+let edRedo=[];         // pila de rehacer
+
+/* --- modelo: filas crudas -> bloques por sección --- */
+function rowsToBlocks(rows){
+  const blocks=[]; let cur={labelRow:null, rows:[]};
+  rows.forEach(cells=>{
+    const m=(cells[0]||'').trim().toLowerCase();
+    if(m==='{t}') return;                    // metadatos: fuera del cuerpo
+    if(m==='{s}'){
+      if(cur.labelRow!==null || cur.rows.length) blocks.push(cur);
+      cur={labelRow:cells.slice(), rows:[]};
+      return;
+    }
+    if(m==='{a}'||m==='{l}'||m===''){ cur.rows.push(cells.slice()); }
+    // marcador desconocido: se descarta, igual que en el render
+  });
+  if(cur.labelRow!==null || cur.rows.length) blocks.push(cur);
+  return blocks;
+}
+function blocksToRows(blocks){
+  const out=[];
+  blocks.forEach(b=>{
+    if(b.labelRow) out.push(b.labelRow);
+    b.rows.forEach(r=>out.push(r));
+  });
+  return out;
+}
+function blocksToCSV(blocks){ return blocksToRows(blocks).map(csvRow).join('\n'); }
+
+/* Empareja las filas de un bloque en líneas visuales:
+   {a} seguido de {l} = par acorde+letra; {a} solo = línea de acordes;
+   {l} solo = letra sin acordes; fila vacía = respiro. */
+function blockLines(block){
+  const rows=block.rows, lines=[]; let i=0;
+  while(i<rows.length){
+    const m=(rows[i][0]||'').trim().toLowerCase();
+    if(m==='{a}'){
+      const next=rows[i+1];
+      const nm=next?(next[0]||'').trim().toLowerCase():'';
+      if(nm==='{l}'){ lines.push({chordRow:rows[i], lyricRow:next}); i+=2; continue; }
+      lines.push({chordRow:rows[i], lyricRow:null}); i++; continue;
+    }
+    if(m==='{l}'){ lines.push({chordRow:null, lyricRow:rows[i]}); i++; continue; }
+    lines.push({blank:true}); i++;
+  }
+  return lines;
+}
+
+/* Lectura/escritura de celdas. OJO: la columna 0 es el marcador,
+   así que la sílaba/acorde de índice i vive en la celda i+1. */
+function cellAt(row,i){ return row && row[i+1]!=null ? row[i+1] : ''; }
+function setCellAt(row,i,v){ while(row.length<=i+1) row.push(''); row[i+1]=v; }
+
+function openVisualEditor(songId){
+  const s=songs.find(x=>x.id===songId); if(!s) return;
+  edSongId=songId;
+  edBlocks=rowsToBlocks(parseCSVFull(s.csv));
+  edTitle=s.title;
+  edTags=new Set(s.tags||[]);
+  edHistory=[]; edRedo=[];
+  document.getElementById('eTitle').textContent=edTitle;
+  syncUndoButtons();
+  document.getElementById('editor').classList.add('show');
+  renderEditor();
+}
+function closeVisualEditor(){
+  document.getElementById('editor').classList.remove('show');
+  edSongId=null; edBlocks=null; edHistory=[]; edRedo=[];
+}
+/* Un snapshot es el estado completo serializado: cuerpo, título y etiquetas.
+   Deshacer/rehacer restauran el snapshot entero, así que cualquier operación
+   queda cubierta sin escribir una inversa para cada una. */
+function snapshot(){ return JSON.stringify({b:edBlocks,t:edTitle,g:[...edTags]}); }
+function restore(snap){
+  const s=JSON.parse(snap);
+  edBlocks=s.b; edTitle=s.t; edTags=new Set(s.g);
+  document.getElementById('eTitle').textContent=edTitle;
+  renderEditor();
+}
+function syncUndoButtons(){
+  document.getElementById('eUndo').style.opacity = edHistory.length? '1':'.35';
+  document.getElementById('eRedo').style.opacity = edRedo.length? '1':'.35';
+}
+/* Se llama ANTES de cada cambio. Una rama nueva invalida el rehacer pendiente. */
+function pushHistory(){
+  edHistory.push(snapshot());
+  if(edHistory.length>80) edHistory.shift();
+  edRedo=[];
+  syncUndoButtons();
+}
+function undoEdit(){
+  if(!edHistory.length) return;
+  edRedo.push(snapshot());
+  restore(edHistory.pop());
+  syncUndoButtons();
+}
+function redoEdit(){
+  if(!edRedo.length) return;
+  edHistory.push(snapshot());
+  restore(edRedo.pop());
+  syncUndoButtons();
+}
+
+/* --- render editable: cada sílaba y cada acorde es un elemento --- */
+function renderEditor(){
+  const host=document.getElementById('eSheet');
+  host.innerHTML='';
+  edBlocks.forEach((block,bi)=>{
+    host.appendChild(renderEditBlock(block,bi));
+  });
+  // segunda pasada: ya hay layout, ahora coloco los acordes sobre su sílaba
+  host.querySelectorAll('.eline').forEach(placeChords);
+}
+
+function renderEditBlock(block,bi){
+  const el=document.createElement('div'); el.className='eblock';
+  // cabecera de sección
+  const head=document.createElement('div'); head.className='ehead';
+  const label=document.createElement('button'); label.className='elabel';
+  const rawLabel=block.labelRow ? block.labelRow.slice(1).join('').trim().replace(/^\[/,'').replace(/\]$/,'').trim() : '';
+  label.textContent = block.labelRow ? (rawLabel?'['+rawLabel+']':'[sin nombre]') : '· sin sección ·';
+  if(block.labelRow) label.onclick=()=>editSectionName(bi,rawLabel);
+  else label.style.opacity='.45';
+  head.appendChild(label);
+  const btns=document.createElement('div'); btns.className='ebtns';
+  const up=document.createElement('button'); up.className='ebtn'; up.textContent='↑';
+  up.disabled = bi===0; up.style.opacity = bi===0?'.3':'1';
+  up.onclick=()=>moveBlock(bi,-1);
+  const dn=document.createElement('button'); dn.className='ebtn'; dn.textContent='↓';
+  dn.disabled = bi===edBlocks.length-1; dn.style.opacity = bi===edBlocks.length-1?'.3':'1';
+  dn.onclick=()=>moveBlock(bi,1);
+  const rm=document.createElement('button'); rm.className='ebtn del'; rm.textContent='🗑';
+  rm.onclick=()=>removeBlock(bi,rawLabel);
+  btns.appendChild(up); btns.appendChild(dn); btns.appendChild(rm);
+  head.appendChild(btns);
+  el.appendChild(head);
+
+  blockLines(block).forEach(line=>{
+    if(line.blank){ const sp=document.createElement('div'); sp.className='espacer'; el.appendChild(sp); return; }
+    el.appendChild(renderEditLine(line));
+  });
+  return el;
+}
+
+function renderEditLine(line){
+  const wrap=document.createElement('div'); wrap.className='eline';
+  const track=document.createElement('div'); track.className='etrack';
+  const syls=document.createElement('div'); syls.className='esyls';
+  wrap.appendChild(track); wrap.appendChild(syls);
+  wrap._line=line;
+
+  if(line.lyricRow){
+    const cells=line.lyricRow.slice(1);
+    cells.forEach((raw,i)=>{
+      const glue=raw.endsWith('-');
+      const text=glue?raw.slice(0,-1):raw;
+      const sp=document.createElement('span');
+      sp.className='esyl'+(glue?' glued':'');
+      sp.dataset.i=i;
+      sp.textContent=text===''?'·':text;
+      if(text==='') sp.classList.add('empty');
+      sp.onclick=()=>editSyllable(line.lyricRow,i,wrap);
+      syls.appendChild(sp);
+      if(!glue && i!==cells.length-1) syls.appendChild(document.createTextNode(' '));
+    });
+  } else {
+    // línea de solo acordes: no hay sílabas, la posición es columna de caracter
+    syls.classList.add('nolyric');
+    syls.textContent=' ';
+  }
+
+  if(line.chordRow){
+    const cells=line.chordRow.slice(1);
+    cells.forEach((c,i)=>{
+      if(c.trim()==='') return;
+      const ch=document.createElement('span');
+      ch.className='echord'; ch.dataset.i=i; ch.textContent=c.trim();
+      attachChordHandlers(ch, line, wrap);
+      track.appendChild(ch);
+    });
+  }
+  return wrap;
+}
+
+/* Mide el ancho de un caracter monoespaciado dentro de un contenedor dado. */
+function chWidth(el){
+  const probe=document.createElement('span');
+  probe.style.cssText='position:absolute;visibility:hidden;white-space:pre;';
+  probe.textContent='0'.repeat(20);
+  el.appendChild(probe);
+  const w=probe.getBoundingClientRect().width/20;
+  probe.remove();
+  return w||8;
+}
+
+/* Coloca cada acorde en la coordenada X de su sílaba (o de su columna,
+   en líneas de solo acordes). Se llama tras el layout y tras cada cambio. */
+function placeChords(lineEl){
+  const line=lineEl._line; if(!line) return;
+  const syls=lineEl.querySelector('.esyls');
+  const track=lineEl.querySelector('.etrack');
+  const targets=snapTargets(lineEl);
+  lineEl._targets=targets;
+  track.querySelectorAll('.echord').forEach(ch=>{
+    const i=parseInt(ch.dataset.i);
+    const x = targets[i]!=null ? targets[i] : (targets.length? targets[targets.length-1]+ (i-targets.length+1)*chWidth(syls) : i*chWidth(syls));
+    ch.style.left=Math.max(0,x)+'px';
+  });
+}
+
+/* Devuelve el array de coordenadas X donde puede caer un acorde. */
+function snapTargets(lineEl){
+  const line=lineEl._line;
+  const syls=lineEl.querySelector('.esyls');
+  const base=syls.getBoundingClientRect().left;
+  if(line.lyricRow){
+    return [...syls.querySelectorAll('.esyl')].map(s=>s.getBoundingClientRect().left-base);
+  }
+  // solo acordes: columnas de caracter, tantas como ancho tenga la línea
+  const cw=chWidth(syls);
+  const n=Math.max(40, Math.ceil(lineEl.clientWidth/cw));
+  return Array.from({length:n},(_,k)=>k*cw);
+}
+
+/* --- interacción del acorde: arrastrar mueve, tocar edita --- */
+function attachChordHandlers(ch, line, lineEl){
+  ch.addEventListener('pointerdown', e=>{
+    e.preventDefault(); e.stopPropagation();
+    const startX=e.clientX;
+    const origLeft=parseFloat(ch.style.left)||0;
+    const origIdx=parseInt(ch.dataset.i);
+    let moved=false, dropIdx=origIdx;
+    ch.setPointerCapture(e.pointerId);
+    ch.classList.add('drag');
+
+    const onMove=ev=>{
+      const dx=ev.clientX-startX;
+      if(Math.abs(dx)>5) moved=true;
+      const x=origLeft+dx;
+      ch.style.left=x+'px';
+      const targets=lineEl._targets||snapTargets(lineEl);
+      dropIdx=nearestFree(targets, x, line.chordRow, origIdx);
+      // guía visual sobre la sílaba de destino
+      lineEl.querySelectorAll('.esyl.target').forEach(n=>n.classList.remove('target'));
+      const t=lineEl.querySelectorAll('.esyl')[dropIdx];
+      if(t) t.classList.add('target');
+    };
+    const onUp=()=>{
+      ch.removeEventListener('pointermove',onMove);
+      ch.classList.remove('drag');
+      lineEl.querySelectorAll('.esyl.target').forEach(n=>n.classList.remove('target'));
+      if(moved && dropIdx!==origIdx){
+        pushHistory();
+        const val=cellAt(line.chordRow,origIdx);
+        setCellAt(line.chordRow,origIdx,'');
+        setCellAt(line.chordRow,dropIdx,val);
+        trimRow(line.chordRow);
+        ch.dataset.i=dropIdx;
+      }
+      placeChords(lineEl);
+      if(!moved) editChord(line.chordRow, origIdx, lineEl);
+    };
+    ch.addEventListener('pointermove',onMove);
+    ch.addEventListener('pointerup',onUp,{once:true});
+    ch.addEventListener('pointercancel',onUp,{once:true});
+  });
+}
+
+/* Índice de destino más cercano a X que esté libre (o sea el propio origen).
+   Si el más cercano está ocupado por otro acorde, busca hacia afuera. */
+function nearestFree(targets, x, chordRow, selfIdx){
+  let best=0, bestD=Infinity;
+  targets.forEach((tx,i)=>{ const d=Math.abs(tx-x); if(d<bestD){bestD=d;best=i;} });
+  const free=i=> i===selfIdx || cellAt(chordRow,i).trim()==='';
+  if(free(best)) return best;
+  for(let step=1; step<targets.length; step++){
+    if(best-step>=0 && free(best-step)) return best-step;
+    if(best+step<targets.length && free(best+step)) return best+step;
+  }
+  return selfIdx;
+}
+/* Quita celdas vacías sobrantes al final, para no inflar el CSV. */
+function trimRow(row){ while(row.length>1 && row[row.length-1]===''){ row.pop(); } }
+
+/* --- edición puntual: sílaba, acorde, sección --- */
+function editSyllable(lyricRow, i, lineEl){
+  const raw=cellAt(lyricRow,i);
+  const glue=raw.endsWith('-');
+  const text=glue?raw.slice(0,-1):raw;
+  const ov=modal();
+  ov.body.innerHTML=`
+    <h2 class="mtitle">Corregir sílaba</h2>
+    <input class="fld" id="syText" value="${escapeHtml(text)}" autocomplete="off">
+    <label class="chk"><input type="checkbox" id="syGlue" ${glue?'checked':''}> Unir con la sílaba siguiente (sin espacio)</label>
+    <p class="hint">Solo se corrige esta sílaba. Para añadir o quitar sílabas, edita la hoja en el Escritor y vuelve a importarla.</p>
+    <div class="mactions"><div style="flex:1"></div>
+      <button class="ghostbtn" id="syCancel">Cancelar</button>
+      <button class="solidbtn" id="syOk">Aplicar</button></div>`;
+  const inp=ov.body.querySelector('#syText');
+  setTimeout(()=>{inp.focus();inp.select();},50);
+  ov.body.querySelector('#syCancel').onclick=ov.close;
+  ov.body.querySelector('#syOk').onclick=()=>{
+    pushHistory();
+    const t=inp.value;
+    const g=ov.body.querySelector('#syGlue').checked;
+    setCellAt(lyricRow,i,t+(g?'-':''));
+    ov.close();
+    renderEditor();
+  };
+  inp.onkeydown=e=>{ if(e.key==='Enter') ov.body.querySelector('#syOk').click(); };
+}
+
+function editChord(chordRow, i, lineEl){
+  const cur=cellAt(chordRow,i).trim();
+  const ov=modal();
+  ov.body.innerHTML=`
+    <h2 class="mtitle">Acorde</h2>
+    <input class="fld mono" id="chText" value="${escapeHtml(cur)}" autocomplete="off" autocapitalize="off">
+    <p class="hint">Arrástralo sobre la hoja para cambiar en qué sílaba cae.</p>
+    <div class="mactions">
+      <button class="dangerbtn" id="chDel">Quitar</button>
+      <div style="flex:1"></div>
+      <button class="ghostbtn" id="chCancel">Cancelar</button>
+      <button class="solidbtn" id="chOk">Aplicar</button></div>`;
+  const inp=ov.body.querySelector('#chText');
+  setTimeout(()=>{inp.focus();inp.select();},50);
+  ov.body.querySelector('#chCancel').onclick=ov.close;
+  ov.body.querySelector('#chDel').onclick=()=>{
+    pushHistory(); setCellAt(chordRow,i,''); trimRow(chordRow); ov.close(); renderEditor();
+  };
+  ov.body.querySelector('#chOk').onclick=()=>{
+    const v=inp.value.trim();
+    pushHistory();
+    setCellAt(chordRow,i,v); trimRow(chordRow);
+    ov.close(); renderEditor();
+  };
+  inp.onkeydown=e=>{ if(e.key==='Enter') ov.body.querySelector('#chOk').click(); };
+}
+
+function editSectionName(bi, cur){
+  const ov=modal();
+  ov.body.innerHTML=`
+    <h2 class="mtitle">Nombre de la sección</h2>
+    <input class="fld" id="seName" value="${escapeHtml(cur)}" placeholder="ESTROFA, CORO, PUENTE…" autocomplete="off">
+    <div class="mactions"><div style="flex:1"></div>
+      <button class="ghostbtn" id="seCancel">Cancelar</button>
+      <button class="solidbtn" id="seOk">Aplicar</button></div>`;
+  const inp=ov.body.querySelector('#seName');
+  setTimeout(()=>{inp.focus();inp.select();},50);
+  ov.body.querySelector('#seCancel').onclick=ov.close;
+  ov.body.querySelector('#seOk').onclick=()=>{
+    const v=inp.value.trim();
+    pushHistory();
+    edBlocks[bi].labelRow=['{s}','['+v+']'];
+    ov.close(); renderEditor();
+  };
+  inp.onkeydown=e=>{ if(e.key==='Enter') ov.body.querySelector('#seOk').click(); };
+}
+
+function moveBlock(bi, dir){
+  const to=bi+dir;
+  if(to<0||to>=edBlocks.length) return;
+  pushHistory();
+  const [b]=edBlocks.splice(bi,1);
+  edBlocks.splice(to,0,b);
+  renderEditor();
+}
+function removeBlock(bi, label){
+  const name=label?'['+label+']':'esta sección';
+  if(!confirm(`¿Eliminar ${name} y todas sus líneas?`)) return;
+  pushHistory();
+  edBlocks.splice(bi,1);
+  renderEditor();
+}
+
+/* --- detalles: título y etiquetas --- */
+function openDetails(){
+  const ov=modal();
+  ov.body.innerHTML=`
+    <h2 class="mtitle">Detalles de la hoja</h2>
+    <label class="lbl">Título</label>
+    <input class="fld" id="dtTitle" value="${escapeHtml(edTitle)}">
+    <label class="lbl">Etiquetas</label>
+    <div class="tagpick" id="dtTags"></div>
+    <div class="mactions">
+      <button class="dangerbtn" id="dtDelete">Eliminar hoja</button>
+      <div style="flex:1"></div>
+      <button class="ghostbtn" id="dtCancel">Cancelar</button>
+      <button class="solidbtn" id="dtOk">Aplicar</button></div>`;
+  const picker=ov.body.querySelector('#dtTags');
+  const chosen=new Set(edTags);
+  function drawPicker(){
+    picker.innerHTML='';
+    if(tags.length===0){picker.innerHTML='<span class="hint">Sin etiquetas todavía. Créalas desde 🏷️.</span>';return;}
+    tags.forEach(t=>{
+      const b=document.createElement('button');
+      b.className='pchip'+(chosen.has(t.id)?' on':'');
+      b.innerHTML=`<span class="dot" style="background:${t.color}"></span>${escapeHtml(t.name)}`;
+      if(chosen.has(t.id)){b.style.background=t.color;b.style.color='#1a1205';}
+      b.onclick=()=>{chosen.has(t.id)?chosen.delete(t.id):chosen.add(t.id);drawPicker();};
+      picker.appendChild(b);
+    });
+  }
+  drawPicker();
+  ov.body.querySelector('#dtCancel').onclick=ov.close;
+  ov.body.querySelector('#dtDelete').onclick=async()=>{
+    if(!confirm('¿Eliminar esta hoja definitivamente?')) return;
+    await del('songs',edSongId);
+    ov.close(); closeVisualEditor();
+    document.getElementById('reader').classList.remove('show');
+    await refresh();
+  };
+  ov.body.querySelector('#dtOk').onclick=()=>{
+    pushHistory();
+    edTitle=ov.body.querySelector('#dtTitle').value.trim()||edTitle;
+    edTags=chosen;
+    document.getElementById('eTitle').textContent=edTitle;
+    ov.close();
+  };
+}
+
+async function saveVisualEditor(){
+  const s=songs.find(x=>x.id===edSongId); if(!s){ closeVisualEditor(); return; }
+  const song={ id:s.id, title:edTitle, csv:blocksToCSV(edBlocks), tags:[...edTags], updated:Date.now() };
+  await put('songs',song);
+  closeVisualEditor();
+  await refresh();
+  openReader(song.id);
+}
+
+document.getElementById('eCancel').onclick=()=>{
+  if(edHistory.length && !confirm('Hay cambios sin guardar. ¿Salir igual?')) return;
+  closeVisualEditor();
+};
+document.getElementById('eSave').onclick=saveVisualEditor;
+document.getElementById('eUndo').onclick=undoEdit;
+document.getElementById('eRedo').onclick=redoEdit;
+document.getElementById('eDetails').onclick=openDetails;
+
+/* Ctrl+Z / Cmd+Z deshace; Ctrl+Shift+Z, Cmd+Shift+Z o Ctrl+Y rehacen.
+   Si el foco está dentro de un campo de texto no interceptamos: ahí gana
+   el deshacer nativo del propio campo, que es lo que el usuario espera. */
+document.addEventListener('keydown', e=>{
+  if(!document.getElementById('editor').classList.contains('show')) return;
+  const t=e.target;
+  if(t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
+  const mod = e.metaKey || e.ctrlKey;
+  if(!mod) return;
+  const k=e.key.toLowerCase();
+  if(k==='z' && !e.shiftKey){ e.preventDefault(); undoEdit(); }
+  else if((k==='z' && e.shiftKey) || k==='y'){ e.preventDefault(); redoEdit(); }
+});
+window.addEventListener('resize',()=>{
+  if(document.getElementById('editor').classList.contains('show')){
+    document.querySelectorAll('#eSheet .eline').forEach(placeChords);
+  }
+});
+
+/* =========================================================
+   6. GESTOR DE ETIQUETAS (crear / editar / eliminar)
+   ========================================================= */
+const PALETTE=['#e8c14a','#c8683a','#6ab04c','#4a9de8','#b264d0','#e85a7a','#38b2ac','#d9915a'];
+function openTagManager(){
+  const ov=modal();
+  function draw(){
+    ov.body.innerHTML=`<h2 class="mtitle">Etiquetas</h2><div id="tagList"></div>
+      <div class="newtag">
+        <input class="fld" id="ntName" placeholder="Nueva etiqueta (ej. Misa, Ensayo)">
+        <div class="palette" id="palette"></div>
+        <button class="solidbtn" id="ntAdd">Añadir</button>
+      </div>
+      <div class="mactions"><div style="flex:1"></div><button class="ghostbtn" id="tagClose">Cerrar</button></div>`;
+    const listEl=ov.body.querySelector('#tagList');
+    if(tags.length===0) listEl.innerHTML='<div class="hint">Aún no hay etiquetas.</div>';
+    tags.forEach(t=>{
+      const row=document.createElement('div'); row.className='tagrow';
+      row.innerHTML=`<span class="dot" style="background:${t.color}"></span>
+        <input class="tagname" value="${escapeHtml(t.name)}">
+        <button class="minibtn del">Eliminar</button>`;
+      const inp=row.querySelector('.tagname');
+      inp.onchange=async()=>{ t.name=inp.value.trim()||t.name; await put('tags',t); tags=await getAll('tags'); };
+      row.querySelector('.del').onclick=async()=>{
+        if(confirm(`¿Eliminar la etiqueta "${t.name}"? Se quitará de las hojas que la usen.`)){
+          await del('tags',t.id);
+          // quitar de canciones
+          for(const s of songs){ if((s.tags||[]).includes(t.id)){ s.tags=s.tags.filter(x=>x!==t.id); await put('songs',s);} }
+          activeFilters.delete(t.id);
+          await reloadData(); draw();
+        }
+      };
+      listEl.appendChild(row);
+    });
+    // palette
+    let picked=PALETTE[tags.length%PALETTE.length];
+    const pal=ov.body.querySelector('#palette');
+    function drawPal(){ pal.innerHTML=''; PALETTE.forEach(c=>{const b=document.createElement('button');b.className='swatch'+(c===picked?' on':'');b.style.background=c;b.onclick=()=>{picked=c;drawPal();};pal.appendChild(b);}); }
+    drawPal();
+    ov.body.querySelector('#ntAdd').onclick=async()=>{
+      const name=ov.body.querySelector('#ntName').value.trim();
+      if(!name){alert('Escribe un nombre.');return;}
+      await put('tags',{id:uid(),name,color:picked});
+      await reloadData(); draw();
+    };
+    ov.body.querySelector('#tagClose').onclick=ov.close;
+  }
+  draw();
+}
+
+/* =========================================================
+   7. MODAL util
+   ========================================================= */
+function modal(){
+  const ov=document.createElement('div'); ov.className='overlay';
+  const box=document.createElement('div'); box.className='modal';
+  ov.appendChild(box); document.body.appendChild(ov);
+  ov.onclick=e=>{ if(e.target===ov) close(); };
+  function close(){ ov.remove(); }
+  return {overlay:ov, body:box, close};
+}
+
+/* =========================================================
+   7b. MENÚ DE RESPALDO (importar / exportar todo)
+   ========================================================= */
+function openBackupMenu(){
+  const ov=modal();
+  ov.body.innerHTML=`
+    <h2 class="mtitle">Respaldo</h2>
+    <p class="hint" style="margin-bottom:16px;line-height:1.5">Guarda tus hojas en un archivo, o recupéralas. Recomendado en iPhone, porque el sistema puede limpiar los datos si no abres la app por semanas.</p>
+    <button class="solidbtn wide" id="bkImport">📥 Importar hoja o respaldo (.csv)</button>
+    <input type="file" id="bkFile" accept=".csv,text/csv" multiple style="display:none">
+    <button class="ghostbtn wide" id="bkExportAll" style="margin-top:10px">📦 Exportar todas las hojas</button>
+    <button class="dangerbtn wide" id="bkWipe" style="margin-top:18px">🗑 Vaciar el cancionero</button>
+    <div class="mactions"><div style="flex:1"></div><button class="ghostbtn" id="bkClose">Cerrar</button></div>`;
+  ov.body.querySelector('#bkImport').onclick=()=>ov.body.querySelector('#bkFile').click();
+  ov.body.querySelector('#bkFile').onchange=async e=>{
+    const files=[...e.target.files]; if(!files.length)return;
+    const res=await importFiles(files);
+    await reloadData(); ov.close();
+    reportImport(res.total,res.old);
+  };
+  ov.body.querySelector('#bkExportAll').onclick=()=>{ exportAll(); };
+  /* Vaciar: borra hojas y etiquetas de IndexedDB. Doble confirmación porque
+     no hay vuelta atrás; si hay hojas, se ofrece respaldarlas primero. */
+  ov.body.querySelector('#bkWipe').onclick=async()=>{
+    if(songs.length===0 && tags.length===0){ alert('El cancionero ya está vacío.'); return; }
+    if(songs.length>0 && confirm(`Vas a borrar ${songs.length} hoja(s). ¿Quieres exportar un respaldo antes?`)) exportAll();
+    if(!confirm('Esto borra TODAS las hojas y etiquetas guardadas en este dispositivo. No se puede deshacer. ¿Continuar?')) return;
+    await clearStore('songs');
+    await clearStore('tags');
+    activeFilters.clear();
+    await reloadData();
+    ov.close();
+    alert('Cancionero vaciado.');
+  };
+  ov.body.querySelector('#bkClose').onclick=ov.close;
+}
+
+/* Importación compartida por el botón ＋ y el menú de respaldo. */
+async function importFiles(files){
+  let total=0, old=0;
+  for(const f of files){
+    const text=await f.text();
+    const res=await importCSV(text);
+    total+=res.count; old+=res.oldFormat;
+  }
+  return {total, old};
+}
+function reportImport(total, old){
+  if(total>0 && old>0) alert(`Se importaron ${total} hoja(s). ${old} hoja(s) estaban en formato antiguo (sin marcadores {t}/{s}/{a}/{l}) y se omitieron.`);
+  else if(total>0) alert(`Se importaron ${total} hoja(s).`);
+  else if(old>0) alert(`El archivo está en formato antiguo (sin marcadores {t}/{s}/{a}/{l}). Ábrelo en el Escritor y expórtalo de nuevo para actualizarlo.`);
+  else alert('No se encontraron hojas válidas en el archivo.');
+}
+
+/* =========================================================
+   8. Bootstrap
+   ========================================================= */
+async function reloadData(){ await loadState(); renderFilters(); renderSongs(); }
+async function refresh(){ await reloadData(); }
+
+/* El botón ＋ ya no crea hojas en blanco: las hojas se escriben en el Escritor
+   y entran al cancionero por importación. */
+document.getElementById('btnAdd').onclick=()=>document.getElementById('addFile').click();
+document.getElementById('addFile').onchange=async e=>{
+  const files=[...e.target.files]; if(!files.length) return;
+  const res=await importFiles(files);
+  e.target.value='';
+  await reloadData();
+  reportImport(res.total,res.old);
+};
+document.getElementById('btnTags').onclick=openTagManager;
+document.getElementById('btnBackup').onclick=openBackupMenu;
+
+(async()=>{
+  await openDB();
+  await reloadData();
+  await pedirPersistencia();
+})();
+
+/* Almacenamiento persistente.
+   En iOS, los datos de un sitio abierto en Safari se borran tras ~7 días sin
+   visitarlo. Al añadirlo a la pantalla de inicio pasa a modo standalone y el
+   almacenamiento deja de expirar. Esta llamada le pide explícitamente al
+   navegador que marque los datos como persistentes; si la concede, ni siquiera
+   la limpieza automática por falta de espacio los toca. */
+async function pedirPersistencia(){
+  try{
+    if(!navigator.storage || !navigator.storage.persist) return;
+    if(await navigator.storage.persisted()) return;   // ya concedida
+    await navigator.storage.persist();
+  }catch(e){ /* navegador sin soporte: seguimos igual */ }
+}
+
+/* Diagnóstico: escribe cancioneroEstado() en la consola para ver si el
+   almacenamiento es persistente y cuánto espacio ocupa. */
+window.cancioneroEstado=async()=>{
+  const out={standalone: window.matchMedia('(display-mode: standalone)').matches || navigator.standalone===true};
+  if(navigator.storage){
+    if(navigator.storage.persisted) out.persistente=await navigator.storage.persisted();
+    if(navigator.storage.estimate){
+      const e=await navigator.storage.estimate();
+      out.usadoKB=Math.round((e.usage||0)/1024);
+      out.disponibleMB=Math.round((e.quota||0)/1048576);
+    }
+  }
+  out.hojas=songs.length; out.etiquetas=tags.length;
+  console.table(out); return out;
+};
+
+// Registrar service worker (para funcionamiento offline / PWA)
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+
+<style>
+/* ---------- Modales ---------- */
+.overlay{position:fixed;inset:0;background:rgba(8,6,4,.72);backdrop-filter:blur(3px);z-index:200;display:flex;align-items:flex-end;justify-content:center;padding:0;}
+.modal{background:var(--panel);width:100%;max-width:760px;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;border:1px solid var(--border);border-bottom:none;padding:22px 20px calc(24px + env(safe-area-inset-bottom));animation:rise .22s ease;}
+@keyframes rise{from{transform:translateY(30px);opacity:.6;}to{transform:none;opacity:1;}}
+.mtitle{margin:0 0 16px;font-size:18px;}
+.lbl{display:block;font-size:12px;color:var(--ink-dim);margin:12px 0 6px;letter-spacing:.4px;text-transform:uppercase;}
+.fld{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:11px;color:var(--ink);padding:12px 13px;font-size:15px;outline:none;}
+.fld:focus{border-color:var(--chord);}
+.fld.mono{font-family:var(--mono);font-size:15px;line-height:1.5;}
+.chk{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:14px;color:var(--ink-dim);}
+.chk input{width:20px;height:20px;accent-color:var(--chord);}
+.filerow{margin-top:9px;}
+.tagpick{display:flex;gap:8px;flex-wrap:wrap;}
+.pchip{display:inline-flex;align-items:center;gap:0;padding:7px 13px;border-radius:999px;background:var(--panel2);border:1px solid var(--border);color:var(--ink-dim);font-size:13px;}
+.pchip .dot{width:8px;height:8px;border-radius:50%;margin-right:7px;}
+.pchip.on{font-weight:600;}
+.hint{color:var(--ink-dim);font-size:13px;line-height:1.5;margin-top:12px;}
+.mactions{display:flex;align-items:center;gap:10px;margin-top:22px;}
+.ghostbtn{padding:11px 16px;border-radius:11px;background:var(--panel2);border:1px solid var(--border);color:var(--ink);font-size:14px;}
+.solidbtn{padding:11px 20px;border-radius:11px;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:14px;}
+.wide{display:block;width:100%;text-align:center;padding:14px;}
+.dangerbtn{padding:11px 16px;border-radius:11px;background:transparent;border:1px solid var(--danger);color:var(--danger);font-size:14px;}
+/* tag manager */
+.tagrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);}
+.tagrow .dot{width:12px;height:12px;border-radius:50%;flex:none;}
+.tagname{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:9px;color:var(--ink);padding:8px 10px;font-size:14px;}
+.minibtn{font-size:12px;padding:7px 11px;border-radius:8px;background:var(--panel2);border:1px solid var(--border);color:var(--ink-dim);}
+.minibtn.del{color:var(--danger);}
+.newtag{margin-top:16px;display:flex;flex-direction:column;gap:10px;}
+.palette{display:flex;gap:8px;flex-wrap:wrap;}
+.swatch{width:30px;height:30px;border-radius:50%;border:2px solid transparent;}
+.swatch.on{border-color:var(--ink);}
+
+/* ---------- Editor visual ---------- */
+#editor{
+  position:fixed;inset:0;background:var(--bg);z-index:150;display:none;flex-direction:column;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+#editor.show{display:flex;}
+.ed-hint{
+  padding:9px 16px;font-size:12px;color:var(--ink-dim);background:var(--panel);
+  border-bottom:1px solid var(--border);text-align:center;
+}
+.ed-scroll{flex:1;overflow:auto;padding:18px 16px 90px;}
+.ed-sheet{font-family:var(--mono);font-size:17px;line-height:1.2;}
+
+.eblock{margin-bottom:20px;padding:10px 8px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.015);}
+.ehead{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.elabel{
+  font-family:var(--sans);color:var(--accent);font-weight:700;font-size:12px;
+  letter-spacing:1.4px;text-transform:uppercase;padding:5px 9px;border-radius:8px;
+  border:1px dashed rgba(200,104,58,.45);background:transparent;
+}
+.elabel:active{background:rgba(200,104,58,.18);}
+.ebtns{display:flex;gap:6px;margin-left:auto;}
+.ebtn{
+  width:32px;height:32px;border-radius:9px;background:var(--panel2);
+  border:1px solid var(--border);color:var(--ink-dim);font-size:14px;
+  display:grid;place-items:center;
+}
+.ebtn.del{color:var(--danger);}
+.ebtn:active{transform:scale(.9);}
+
+/* una línea = pista de acordes (posicionada) + fila de sílabas */
+.eline{
+  position:relative;margin-bottom:16px;
+  overflow-x:auto;overflow-y:hidden;scrollbar-width:none;
+}
+.eline::-webkit-scrollbar{display:none;}
+.etrack{position:relative;height:2em;}
+.esyls{white-space:nowrap;color:var(--ink);padding-bottom:2px;}
+.esyls.nolyric{opacity:.25;}
+.esyl{
+  display:inline-block;padding:1px 0;
+  border-bottom:1px dashed rgba(232,193,74,.22);
+}
+.esyl.empty{color:var(--ink-dim);opacity:.4;}
+.esyl.glued{border-bottom-style:solid;border-bottom-color:rgba(232,193,74,.35);}
+.esyl:active{background:rgba(232,193,74,.2);border-radius:3px;}
+.esyl.target{background:rgba(232,193,74,.28);border-radius:3px;}
+.espacer{height:14px;}
+
+.echord{
+  position:absolute;top:0;
+  color:var(--chord);font-weight:700;
+  padding:3px 7px;border-radius:8px;
+  background:var(--panel2);border:1px solid var(--border);
+  touch-action:none;user-select:none;-webkit-user-select:none;
+  white-space:nowrap;
+  transition:background .1s,color .1s;
+}
+.echord:active{border-color:var(--chord);}
+.echord.drag{
+  background:var(--chord);color:#241a05;border-color:transparent;
+  z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.5);transition:none;
+}
+</style>
+</body>
+</html>
