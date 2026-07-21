@@ -376,10 +376,13 @@ function renderPair(chordPos, syllables){
   positions.forEach(p=>{
     const chord=chordPos[p];
     if(p<syllables.length){
+      /* El acorde quiere empezar en la columna de su sílaba, pero nunca antes
+         de un espacio después del acorde anterior. Sin ese mínimo, cuando la
+         línea termina justo en la columna de destino los dos quedan pegados
+         («CG»): no entraba ni en «más corta» ni en «más larga». */
       const col=startCol[p];
-      if(chordLine.length<col) chordLine+=' '.repeat(col-chordLine.length);
-      // evitar solaparse: si ya hay algo, empujar con un espacio
-      if(chordLine.length>col && chordLine.length>0){ chordLine+=' '; }
+      const inicio=Math.max(col, chordLine.length ? chordLine.length+1 : 0);
+      if(chordLine.length<inicio) chordLine+=' '.repeat(inicio-chordLine.length);
       chordLine+=chord;
     } else {
       overflow.push(chord); // supera el nº de sílabas -> al final
@@ -401,9 +404,10 @@ function renderChordsOnly(chordPos){
   let chordLine='';
   const positions=Object.keys(chordPos).map(Number).sort((a,b)=>a-b);
   positions.forEach(p=>{
-    const col=p; // en solo-acordes, la posición de celda define la columna directamente
-    if(chordLine.length<col) chordLine+=' '.repeat(col-chordLine.length);
-    if(chordLine.length>col && chordLine.length>0) chordLine+=' ';
+    // en solo-acordes la celda define la columna, con el mismo mínimo de un
+    // espacio entre acordes consecutivos (ver renderPair)
+    const inicio=Math.max(p, chordLine.length ? chordLine.length+1 : 0);
+    if(chordLine.length<inicio) chordLine+=' '.repeat(inicio-chordLine.length);
     chordLine+=chordPos[p];
   });
   const cr=document.createElement('div'); cr.className='chordrow'; cr.textContent=chordLine||' ';
